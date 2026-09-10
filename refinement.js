@@ -35,6 +35,7 @@ render=function(){const requestedReasons=page==='reasons';if(requestedReasons)pa
  document.querySelectorAll('button').forEach(b=>{const t=b.textContent.trim();if(t==='导出'){b.classList.add('export-btn');b.innerHTML=exportIcon+'导出'}if(t==='取消')b.style.background='white'});
  if(page==='records'){app.querySelectorAll('.filter-actions button').forEach(b=>{if(b.textContent.includes('查询'))b.remove()})}
  if(page==='dashboard'){const ann=app.querySelector('.annotation');if(ann)ann.textContent='日期放第一位；门店字段复用订单搜索选择器；保留原报表分组和字段顺序。'}
+ if(page==='push'&&pushTab==='跟进任务')app.querySelector('.panel > p.note')?.remove();
  if(page==='pool'||page==='push'){const p=app.querySelector('.panel');if(p)p.insertAdjacentHTML('beforeend',`<div class="note" style="margin-top:18px;margin-bottom:0"><b>未结束任务过滤</b><p style="margin:5px 0 10px">生成新补货任务前，按门店＋商品过滤仍在补货任务或跟进任务中的商品。</p><button onclick="previewGeneration()">演示生成校验</button></div>`)}
  if(page==='flow'){const p=app.querySelector('.panel');if(p)p.insertAdjacentHTML('beforeend','<p class="note">生成入口新增店品过滤：存在未结束补货任务或跟进任务时，本次不再为相同门店＋商品生成新推荐；其他店品继续处理。</p>')}
  if(page==='store'&&!order){const all=taskRows(tasks[0]).filter(r=>r.s==='待补货');document.querySelectorAll('.phone .product').forEach((el,i)=>{el.hidden=category!=='全部'&&all[i]?.g[4]!==category;const pic=el.querySelector('.pic');if(pic&&all[i])pic.innerHTML=productArt(all[i].g[0])});const btn=app.querySelector('.cats button');if(btn)btn.onclick=()=>filterStore('全部')}
