@@ -80,7 +80,46 @@ const priorQuery=query;query=function(){if(page==='records')queryRecords();else 
 records=function(){const reasonValues=[...new Set(rows.map(r=>r.reason).filter(Boolean))];const options=(values,value)=>['',...values].map(s=>`<option value="${esc(s)}" ${s===value?'selected':''}>${esc(s||'全部')}</option>`).join('');let a=filterRows().filter(r=>(!rfilter.task||r.task.includes(rfilter.task))&&(!rfilter.follow||(r.f&&taskOf(r).fid.includes(rfilter.follow)))&&(!rfilter.status||r.s===rfilter.status)&&(!rfilter.fs||r.f===rfilter.fs)&&(!rfilter.reason||(r.reason||'无拒绝原因')===rfilter.reason)&&(!rfilter.black||(r.black?'是':'否')===rfilter.black));const rank=r=>r.f?({'待跟进':1,'待补货':2,'已补货':4,'已拒绝':r.black?(r.date?6:5):7,'已超时':8}[r.f]):({'待补货':0,'已补货':r.orderState==='作废'?9:3,'已删除':10}[r.s]??11);a.sort((x,y)=>rank(x)-rank(y));const hs=['补货任务编码','推送时间','补货结束时间','跟进任务编码','跟进开始时间','跟进结束时间','发货门店','补货门店','商品代码','商品名称','补货状态','跟进人','跟进状态','补货数量','关联订单','关联订单状态','拒绝原因','是否黑名单','截止日期'];const data=a.map(r=>{const t=taskOf(r);return[r.task,t.start,t.end,r.f?t.fid:'—',r.f?t.fs:'—',r.f?t.fe:'—','示例配送中心',r.store,r.g[0],r.g[1],r.s,r.f?t.person:'—',r.f||'—',r.n,r.order||'—',recordOrderState(r)||'—',r.reason||'—',r.black?'是':'否',r.black?(r.date||'永久'):'—']});exports.records=[hs,data];const display=data.map((line,i)=>line.map((v,j)=>[10,12].includes(j)?tag(v):j===15?`${tag(v)}${a[i].orderHint?tip(a[i].orderHint):''}`:esc(v)));return `<div class="panel"><div class="toolbar"><button onclick="queryRecords()">${searchIcon}查询</button><button onclick="exportRows('records')">导出</button></div>${filterUI()}<div class="filter"><label>补货任务编码 <input id="rt" placeholder="包含式模糊搜索" value="${esc(rfilter.task||'')}"></label><label>跟进任务编码 <input id="rf" placeholder="包含式模糊搜索" value="${esc(rfilter.follow||'')}"></label><label>补货状态 <select id="rs">${options(['待补货','已补货','已删除','已超时'],rfilter.status)}</select></label><label>跟进状态 <select id="rfs">${options(['待跟进','待补货','已补货','已拒绝','已超时'],rfilter.fs)}</select></label><label>拒绝原因 <select id="rr">${options(['无拒绝原因',...reasonValues],rfilter.reason)}</select></label><label>是否黑名单 <select id="rb">${options(['是','否'],rfilter.black)}</select></label></div>${note('示例覆盖全部补货/跟进状态、订单制单/审核/作废/失效、无订单、多种拒绝原因、非黑名单/永久/有截止日期。订单作废与历史冻结的不同场景见状态旁说明。')}${table('records',hs,display,true)}</div>`};
 render();
 
-/* 评审收口：统一编码、终态和推送周期，集中放在增强层维护。 */
+// 跟进补货判定仅用于原型演示；没有命中单据不修改督导人工标记。
+function applyFollowEvidence(t, documents) {
+  if (!t || t.phase !== 'follow') return 0;
+  const time = value => Date.parse(value.replace(' ', 'T'));
+  let count = 0;
+  for (const row of followRows(t)) {
+    if (!['待跟进','待补货','已拒绝'].includes(row.f)) continue;
+    const hit = documents.find(d =>
+      ['门店订单-仓配','调出单'].includes(d.type) &&
+      ['制单','审核'].includes(d.status) &&
+      (d.type === '调出单' ? d.receivingStore : d.store) === row.code &&
+      d.product === row.g[0] && d.quantity > 0 &&
+      time(d.time) >= time(t.fs) && time(d.time) < time(t.fe));
+    if (!hit) continue;
+    row.followActionBeforePurchase = row.f;
+    row.f = '已补货';
+    row.n = hit.quantity;
+    row.order = hit.id;
+    row.orderState = hit.status;
+    row.orderType = hit.type;
+    count++;
+  }
+  return count;
+}
+function simulateFollowEvidence(type, status) {
+  const t = tasks.find(t => t.fid === followId);
+  if (!t || t.phase !== 'follow') { toast('跟进期已结束，历史结果冻结'); return; }
+  const candidates = followRows(t).filter(r => ['待跟进','待补货','已拒绝'].includes(r.f));
+  const row = candidates.find(r => r.f === '已拒绝') || candidates[0];
+  if (!row) { toast('没有可演示的商品'); return; }
+  const documents = type ? [{
+    id: (type === '调出单' ? 'DC' : 'DD') + '-DEMO-' + row.id,
+    type, status, store: row.code, receivingStore: row.code, product: row.g[0],
+    quantity: 1, time: t.fs
+  }] : [];
+  const count = applyFollowEvidence(t, documents);
+  render();
+  toast(count ? '已识别有效补货，更新为已补货；保留历史拒绝与黑名单' : '未识别有效补货，保留原跟进状态');
+}
+/* 评审收口：统一编码、状态和推送周期，集中放在增强层维护。 */
 function normalizeFollowCodes(){
   tasks.forEach(t=>{if(t.fid&&!t.fid.endsWith('GJ'))t.fid=`${t.id}GJ`});
   followId=tasks.find(t=>t.fid)?.fid||followId;
@@ -103,7 +142,7 @@ function followPage(){
   if(!followDetail)return `<div class="mobile-wrap"><div class="phone"><div class="ptop">补货跟进</div><div class="cats"><button class="${tabStage==='live'?'sel':''}" onclick="tabStage='live';render()">生效中</button><button class="${tabStage==='past'?'sel':''}" onclick="tabStage='past';render()">已超期</button></div><div style="padding:12px"><input placeholder="搜索任务编号或门店" style="width:100%"></div>${ts.map(t=>`<div class="card" role="button" tabindex="0" onclick="followId='${t.fid}';followDetail=true;render()"><div class="title"><b>${t.fid}</b>${tag(fComplete(t)?'已完成':'未完成')}</div><div>${t.store}</div><div>跟进人：${t.person}　进度 ${fDone(t)} / ${followRows(t).length}</div><small>开始：${t.fs}<br>结束：${t.fe}</small></div>`).join('')||'<p class="card">暂无任务</p>'}</div><section><h2>督导跟进任务</h2><p>生效状态与完成状态分开展示；到期前已完成的任务，在“已超期”中仍显示已完成。</p><p class="note">完成分子仅包含已补货和已拒绝，已超时不计完成。</p></section></div>`;
   if(!t)return '';
   const a=followRows(t),closed=t.phase==='closed';
-  return `<div class="mobile-wrap"><div class="phone"><div class="ptop"><button onclick="followDetail=false;render()">‹</button>补货跟进详情</div><div class="card"><b>${t.fid}</b><div class="row"><span>${t.store}</span>${tag(fComplete(t)?'已完成':'未完成')}</div><div class="row">${t.person}<span>进度 ${fDone(t)} / ${a.length}</span></div><small>${t.fs} 至 ${t.fe}</small></div><div class="products">${a.map(r=>`<div class="product"><div class="pic">${r.g[2]}</div><div class="body"><h4>${r.g[1]}</h4><small>商品代码：${r.g[0]}</small><p>${tag(r.f)}</p>${r.reason?`<small>拒绝原因：${esc(r.reason)}<br>黑名单：${r.black?(r.date||'永久'):'否'}</small>`:''}${!closed&&['待跟进','待补货'].includes(r.f)?`<div><button ${r.f==='待补货'?'disabled':''} onclick="rows.find(r=>r.id===${r.id}).f='待补货';render()">标记待补货</button><button onclick="reject(${r.id})">拒绝补货</button></div>`:''}</div></div>`).join('')}</div></div><section><h2>跟进处理与自动更新</h2>${note('“已补货”由订单依据自动判定；已拒绝为终态，不能取消。')}</section></div>`;
+  return `<div class="mobile-wrap"><div class="phone"><div class="ptop"><button onclick="followDetail=false;render()">‹</button>补货跟进详情</div><div class="card"><b>${t.fid}</b><div class="row"><span>${t.store}</span>${tag(fComplete(t)?'已完成':'未完成')}</div><div class="row">${t.person}<span>进度 ${fDone(t)} / ${a.length}</span></div><small>${t.fs} 至 ${t.fe}</small></div><div class="products">${a.map(r=>`<div class="product"><div class="pic">${r.g[2]}</div><div class="body"><h4>${r.g[1]}</h4><small>商品代码：${r.g[0]}</small><p>${tag(r.f)}</p>${r.reason?`<small>历史拒绝原因：${esc(r.reason)}<br>黑名单：${r.black?(r.date||'永久'):'否'}</small>`:''}${!closed&&['待跟进','待补货'].includes(r.f)?`<div><button ${r.f==='待补货'?'disabled':''} onclick="rows.find(r=>r.id===${r.id}).f='待补货';render()">标记待补货</button><button onclick="reject(${r.id})">拒绝补货</button></div>`:''}</div></div>`).join('')}</div></div><section><h2>跟进处理与自动更新</h2><p>没有有效单据时保留“待跟进”；督导沟通后标记“待补货”。有效期内按店品识别门店订单-仓配或调出单（制单/审核），调出单匹配收货门店。有有效补货时自动转“已补货”，优先于“已拒绝”。</p><p>原拒绝原因及黑名单保留；不提供人工取消拒绝。</p><p class="note">以下仅为演示控件，不是正式页面功能。使用当前跟进期内的虚构单据，优先演示已拒绝商品补货。</p><div class="toolbar"><button ${closed?'disabled':''} onclick="simulateFollowEvidence('门店订单-仓配','制单')">模拟订单制单</button><button ${closed?'disabled':''} onclick="simulateFollowEvidence('门店订单-仓配','审核')">模拟订单审核</button><button ${closed?'disabled':''} onclick="simulateFollowEvidence('调出单','制单')">模拟调出制单</button><button ${closed?'disabled':''} onclick="simulateFollowEvidence('调出单','审核')">模拟调出审核</button><button ${closed?'disabled':''} onclick="simulateFollowEvidence()">模拟无单据</button></div></section></div>`;
 }
 
 function expireStore(){const t=tasks[0];taskRows(t).filter(r=>r.s==='待补货').forEach(r=>{r.s='已超时';r.f='待跟进'});t.phase='follow';if(followRows(t).length)t.fid=`${t.id}GJ`;followId=t.fid;normalizeFollowCodes();toast('已演示推进到跟进阶段，尚未处理商品生成跟进编号');go('follow')}
