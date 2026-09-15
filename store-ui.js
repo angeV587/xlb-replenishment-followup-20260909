@@ -23,7 +23,7 @@ function storePage(){
   return `<div class="mobile-wrap store-redesign"><div class="phone store-phone">
     <div class="store-status"><span>9:41</span><span class="store-device-note">APP 演示</span></div>
     <div class="store-title"><button aria-label="返回门店订单" onclick="toast('返回既有门店订单入口（演示）')">${storeIcon('back')}</button><strong>门店选品</strong><span>${esc(t.store)}</span></div>
-    <div class="store-notice">${storeIcon('info')}<span>${active?`您有${all.length}个待补货商品需确认，请及时完成下单！`:'当前补货任务已超期，无法继续处理。'}</span></div>
+    <div class="store-notice">${storeIcon('info')}<span>${active?(all.length?`您有${all.length}个待补货商品需确认，请及时完成下单！`:'本批推荐商品已全部处理完成。'):'当前补货任务已超期，无法继续处理。'}</span></div>
     <div class="store-tabs">${['全部','水饮','零食','日用品'].map(c=>`<button class="${category===c?'active':''}" onclick="pickStoreCategory('${c}')">${c}</button>`).join('')}</div>
     <div class="store-catalog"><aside class="store-sidebar">${groups.map(c=>`<button class="${storeSubcategory===c?'active':''}" onclick="storeSubcategory='${c}';render()">${c}</button>`).join('')}</aside><div class="store-items">
     <div class="store-list-title">${storeSubcategory}<small>${visible.length}个商品</small></div>
