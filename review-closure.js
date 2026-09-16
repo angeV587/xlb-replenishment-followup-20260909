@@ -1,5 +1,5 @@
 /* 2026-09-16 业务接龙：有效补货优先、多依据、回退、查询与黑名单。 */
-const followMark=r=>!r.f?'—':r.f==='已补货'?'已跟进':r.f==='待跟进'?'待跟进':r.f==='已超时'?(r.beforeTimeout==='待跟进'?'待跟进':'已跟进'):'已跟进';
+const followMark=r=>!r.f?'—':r.f==='已补货'?'已跟进':r.f==='待跟进'?'待跟进':r.f==='已超时'?(['待补货','已拒绝'].includes(r.beforeTimeout)?'已跟进':'待跟进'):'已跟进';
 const shippingName=r=>r.shippingStore||'示例配送中心';
 function matchingEvidence(r,t,docs){return docs.filter(d=>['门店订单-仓配','调出单'].includes(d.type)&&['制单','审核'].includes(d.status)&&(d.type==='调出单'?d.receivingStore:d.store)===r.code&&d.product===r.g[0]&&d.quantity>0&&d.time>=t.fs&&d.time<t.fe)}
 function relatedDocuments(r){if(Array.isArray(r.evidence))return r.evidence;return r.order?[{id:r.order,type:r.orderType||'门店订单-仓配',status:recordOrderState(r),quantity:r.n,time:taskOf(r).start}]:[]}
